@@ -1,0 +1,75 @@
+def consulta():
+    "2639999"
+
+    engine = create_engine(database_uri)
+
+    nombre_vista = 'prueba5'
+
+    consulta_drop = f'DROP VIEW IF EXISTS {nombre_vista};'
+
+    consulta_create = f"""
+     CREATE VIEW {nombre_vista} AS
+SELECT
+    ta.id AS ID,
+
+    ta.fecha_hora AS Fecha_Hora,
+
+    ta.duration_in_traffic AS TV_segundos,
+
+    ta.id_corredor AS ID_corredor,
+
+    ta.email AS Correo,
+
+    TO_CHAR(ta.fecha_hora::DATE, 'dd') AS Dia,
+
+    TO_CHAR(ta.fecha_hora::DATE, 'mm') AS Mes,
+
+    CASE
+        WHEN EXTRACT(DOW FROM DATE_TRUNC('YEAR', ta.fecha_hora::DATE))::integer > 0 AND EXTRACT(DOW FROM DATE_TRUNC('YEAR', ta.fecha_hora::DATE))::integer <= 4
+            THEN TO_CHAR(ta.fecha_hora::DATE, 'iw')::integer
+        ELSE
+            CASE
+                WHEN ta.fecha_hora::DATE < date_trunc('week', date_trunc('year', ta.fecha_hora::DATE)::date + INTERVAL '1 week')::DATE
+                    THEN TO_CHAR(ta.fecha_hora::DATE, 'ww')::integer
+                ELSE TO_CHAR(ta.fecha_hora::DATE, 'iw')::integer + 1
+            END
+    END AS Semana,
+    
+    TO_CHAR(ta.fecha_hora::DATE, 'yyyy') AS Año,
+
+    TO_CHAR(ta.fecha_hora::timestamp, 'HH24') AS Hora,
+
+    TO_CHAR(ta.fecha_hora::DATE, 'dd-mm-yyyy') AS Fecha,
+    
+    tb.corredor AS Corredor,
+
+    tb.sentido AS Sentido,
+
+    CONCAT(tb.corredor, '_', tb.sentido) AS Corredor_Sentido,
+
+    tb.inicio AS Inicio,
+
+    tb.fin AS Fin,
+
+    tb.longitud_km AS Longitud_km,
+
+    ROUND(duration_in_traffic/60::numeric, 2) AS TV_minutos,
+
+    ROUND(CAST((tb.longitud_km::float / (duration_in_traffic::float / 60)) * 60 AS numeric), 2) AS Velocidad_km_h,
+    ROUND(CAST((duration_in_traffic / (60 * tb.longitud_km::float)) AS numeric), 2) AS TV_min_km,
+
+    EXTRACT(ISODOW FROM ta.fecha_hora::DATE) AS Dia_semana,
+    
+    TO_CHAR(ta.fecha_hora::DATE, 'TMDay') AS Dia_nombre
+    
+FROM
+    stn_tv AS ta
+LEFT JOIN
+    dm_corredores AS tb ON tb.id = ta.id_corredor
+WHERE
+    tb.longitud_km IS NOT NULL
+    AND CAST(ta.fecha_hora AS timestamp) >= DATE_TRUNC('MONTH', CURRENT_DATE - INTERVAL '1 MONTH')
+    AND CAST(ta.fecha_hora AS timestamp) < DATE_TRUNC('MONTH', CURRENT_DATE)
+    AND tb.proyecto LIKE '%P.O%';
+
+    """
