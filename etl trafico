@@ -1,0 +1,116 @@
+import pymssql 
+import psycopg2
+import pandas as pd
+from sqlalchemy import create_engine
+import pandas as pd
+import sqlalchemy
+from sqlalchemy import create_engine, text
+
+
+def mssql_query(query):
+    """ Ejecutar query en MSSQL
+
+    Lee los registros de la base de datos origen .
+
+    Parameters
+    ----------
+    query: sqlalchemy.engine.base.Engine
+        Motor de conexión a base de datos.
+    
+    Returns
+    -------
+    pandas.core.frame.DataFrame:
+        Dataframe con los datos seleccionados.
+    """
+    sql_server_conn = pymssql.connect(server='10.158.64.110', 
+                                  user='incidente_consulta', 
+                                  password='1nc1d3nt3c0nsult4', 
+                                  database='MEDELLIN_GIP')
+
+    sql_server_cursor = sql_server_conn.cursor()
+    sql_server_cursor.execute(query)
+
+    dfi = sql_server_cursor.fetchall()
+
+    colNameList = []
+    for i in range(len(sql_server_cursor.description)):
+        desc = sql_server_cursor.description[i]
+        colNameList.append(desc[0])
+
+    dfi = pd.DataFrame(list(dfi),columns=colNameList)
+    
+    
+    # close the cursor and connection
+    sql_server_conn.close()
+    sql_server_cursor.close()
+    
+    return dfi
+
+#leer los datos cargados de la tabla destino
+#host = 'postgresql' 
+#host = '10.5.3.99'
+def psql_query(query):
+    try:
+        # Connect to the database
+        database = 'postgres'
+        user = 'postgres'
+        password = 'postgres'
+        host = 'postgresql'
+        port = '5432'
+        database_uri = f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}'
+        psql_engine = sqlalchemy.create_engine(database_uri)
+        
+        #engine = create_engine('mysql+pymysql://root:pass@localhost:3306/mydb')
+        #query = 'SELECT max("Fecha") FROM "DatosTrafico_CCTV_Hora" where "Carril" = ' +"'" +str(carril)+"'"
+        df = pd.read_sql_query(sql=text(query), con=psql_engine.connect())
+        #con.close()
+        psql_engine.dispose()
+        return df['max'][0]
+    except:
+        return None
+
+#Insertar dataframe en postgresql
+#host = 'postgresql' 
+#host = '10.5.3.99'
+def psql_df(df):
+    # Connect to the database
+    database = 'postgres'
+    user = 'postgres'
+    password = 'postgres'
+    host = 'postgresql'
+    port = '5432'
+    database_uri = f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}'
+    psql_engine = sqlalchemy.create_engine(database_uri)
+    
+    table_name = 'DatosTrafico_CCTV_Hora'
+    df.to_sql(table_name, psql_engine, if_exists='append', index=False)
+    psql_engine.dispose()
+
+#proceso main
+#seleccionar todos los carriles de la tabla origen
+
+def etl_trafico():
+    query_0 = "select distinct Carril from DatosTrafico_CCTV_Hora"
+    df_carriles = mssql_query(query_0)
+
+    #seleccionar la ultima fecha de cada carril en la tabla destino
+    for carril in df_carriles['Carril']:
+        
+        query_1 = 'SELECT max("Fecha") FROM "DatosTrafico_CCTV_Hora" where "Carril" = ' +"'" +str(carril)+"'"
+        ldc = psql_query(query_1)
+        if ldc is None:
+            #seleccionar los registros de la tabla origen, a partir de la ultima fecha
+            query_2 = "select * from DatosTrafico_CCTV_Hora where Carril = '"+str(carril)+ "'"        
+            dfo = mssql_query(query_2)       
+        if ldc is not None:
+            #seleccionar los registros de la tabla origen, a partir de la ultima fecha
+            query_2 = "select * from DatosTrafico_CCTV_Hora where Carril = '"+str(carril)+\
+                      "' and Fecha > CAST('" + str(ldc)+"' as DATETIME2)"
+            dfo = mssql_query(query_2)
+        #cargar en la tabla destino los datos seleccionados    
+        print("cargando ",len(dfo), "registros del carril",carril)
+        table_name = 'DatosTrafico_CCTV_Hora'
+        psql_df(dfo)
+
+def etl_trafico_prueba():
+    return "prueba"
