@@ -1,0 +1,165 @@
+import pandas as pd
+import datetime
+from datetime import datetime, timedelta, date
+import pymssql 
+import psycopg2
+from sqlalchemy import create_engine
+import sqlalchemy
+from sqlalchemy import create_engine, text, update
+
+import smtplib
+from email.message import EmailMessage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+
+
+database = 'postgres'
+user = 'postgres'
+password = 'postgres'
+host = '10.5.3.99'
+port = '5432'
+
+# sqlalchemy connection
+database_uri = f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}'
+
+def consulta():
+
+    engine = create_engine(database_uri)
+
+    nombre_vista = 'vw_tv_smm'
+
+    consulta_drop = f'DROP VIEW IF EXISTS {nombre_vista};'
+
+    consulta_create = f"""
+    CREATE VIEW {nombre_vista} AS
+
+    select ta.id,
+        ta.fecha_hora,
+        ta.duration_in_traffic,
+        ta.id_corredor,
+        ta.email,
+        TO_CHAR(ta.fecha_hora::DATE, 'dd-mm-yyyy') as fecha,
+        TO_CHAR(ta.fecha_hora::timestamp, 'HH24') AS hora,
+        TO_CHAR(ta.fecha_hora::DATE, 'dd') as dia,
+        TO_CHAR(ta.fecha_hora::DATE, 'mm') as mes,
+        TO_CHAR(ta.fecha_hora::DATE, 'yyyy') as year,
+        tb.corredor as corredor,
+        tb.sentido as sentido,
+        CONCAT(tb.corredor, '_', tb.sentido) AS corredor_sentido,
+        tb.inicio as inicio,
+        tb.fin as fin,
+        tb.longitud_km as longitud_km,
+        duration_in_traffic/60 as tv_minutos,
+        ROUND(CAST((tb.longitud_km::float / (duration_in_traffic::float / 60)) * 60 AS numeric), 2) AS velocidad_km_h,
+        ROUND(CAST(((duration_in_traffic / 60) / tb.longitud_km::float) AS numeric), 2) AS tv_min_km,
+        TO_CHAR(ta.fecha_hora::DATE, 'TMDay') AS day_name,
+        EXTRACT(ISODOW FROM ta.fecha_hora::DATE) AS day_of_week
+    
+    from stn_tv as ta
+
+    left join dm_corredores as tb
+
+    on tb.id = ta.id_corredor
+
+    where tb.longitud_km is not null 
+        AND CAST(ta.fecha_hora AS timestamp) >= DATE_TRUNC('MONTH', CURRENT_DATE - INTERVAL '1 MONTH')
+        AND CAST(ta.fecha_hora AS timestamp) < DATE_TRUNC('MONTH', CURRENT_DATE)
+        AND tb.proyecto LIKE '%P.O%'
+    """
+
+# Ejecutar la consulta SQL para eliminar la vista existente (si existe)
+    with engine.connect() as connection:
+        connection.execute(consulta_drop)
+
+
+# Ejecutar la consulta SQL para crear la nueva vista
+    with engine.connect() as connection:
+        connection.execute(text(consulta_create))
+    
+
+# Obtener la vista creada en un dataframe
+    consulta_sql = f'SELECT * FROM {nombre_vista};'
+    df = pd.read_sql_query(consulta_sql, engine)
+
+
+    engine.dispose()
+
+    return df
+
+
+
+def mail(subject,body,archivo):
+    user = 'wpuetate@inteia.com.co'
+    password = 'Interconexion7030*'
+    smtpsrv = "smtp.office365.com"
+    smtpserver = smtplib.SMTP(smtpsrv,587)
+
+
+    msg = MIMEMultipart('alternative')
+    #msg = EmailMessage()
+
+    msg['Subject'] = subject #'Reporte de datos faltantes'
+    msg['From'] = 'wpuetate@inteia.com.co'
+    msg['To'] = 'wepuetatem@unal.edu.co'
+
+      # Agregar el archivo adjunto al mensaje
+    part = MIMEBase('application', 'octet-stream')
+    part.set_payload(archivo.encode())
+    part.add_header('Content-Disposition', 'attachment', filename='datos.csv')
+    msg.attach(part)
+
+    # Record the MIME types of both parts - text/plain and text/html.
+    part1 = MIMEText(body, 'html')
+    #
+    msg.attach(part1)
+
+    smtpserver.ehlo()
+    smtpserver.starttls()
+    smtpserver.login(user, password)
+    smtpserver.send_message(msg)
+    smtpserver.close()
+
+import datetime
+def mail_subject():     
+
+    fecha_actual = datetime.date.today()
+
+# Obtener el primer día del mes anterior
+    primer_dia_mes_anterior = datetime.date(fecha_actual.year, fecha_actual.month - 1, 1)
+
+
+# Obtener el último día del mes anterior
+    ultimo_dia_mes_anterior = primer_dia_mes_anterior.replace(day=28) + datetime.timedelta(days=4)
+
+    ultimo_dia_mes_anterior = ultimo_dia_mes_anterior - datetime.timedelta(days=ultimo_dia_mes_anterior.day)
+
+
+    subject = "corredores " + str(primer_dia_mes_anterior) + " - " + str(ultimo_dia_mes_anterior)
+    
+    return subject
+
+
+def mail_object(): 
+
+    html = '''
+<html>
+<head></head>
+<body>
+    
+    <p>Este es un mensaje de prueba con contenido un archivo csv.</p>
+    
+</body>
+</html>
+'''
+    
+    return html
+
+subject=mail_subject()
+print("primer paso")
+body=mail_object()
+print("segundo paso")
+archivo=consulta().to_csv(index=False)
+print("tercer paso")
+mail(subject,body,archivo)
+print("correo enviado")
